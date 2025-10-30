@@ -1,11 +1,5 @@
 # 🎓 Experience Replay for Action Generalization and Multi-Agent Systems
 
-**Team 9**  
-- Leonardo Cavallaro (20256415)  
-- Alice Banaudi (20256416)  
-- Wonyoung Lee (20253557)  
-
----
 
 ## 📘 Overview
 
