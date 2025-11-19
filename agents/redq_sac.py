@@ -7,6 +7,7 @@ import numpy as np
 from typing import List
 
 from utils.nets import mlp, GaussianPolicy
+import copy
 
 
 class QNetwork(nn.Module):
@@ -21,8 +22,7 @@ class QNetwork(nn.Module):
 
 class REDQSACAgent:
     """
-    Simplified REDQ-SAC: ensemble of Q networks + SAC policy.
-    We can set utd_ratio > 1 later to match SYNTHER.
+    REDQ-SAC + optional PGR (Policy Gradient Regularization)
     """
 
     def __init__(
@@ -38,6 +38,8 @@ class REDQSACAgent:
         utd_ratio: int = 20,
         batch_size: int = 256,
         target_entropy: float = None,
+        use_pgr: bool = False,
+        pgr_coef: float = 0.0,
     ):
         self.device = device
         self.obs_dim = obs_dim
@@ -50,8 +52,18 @@ class REDQSACAgent:
         self.num_q_nets = num_q_nets
         self.num_q_samples = num_q_samples
 
+        self.use_pgr = use_pgr
+        self.pgr_coef = pgr_coef
+
         # Actor
         self.actor = GaussianPolicy(obs_dim, act_dim).to(device)
+
+        # --------------------
+        # PGR: reference policy
+        # --------------------
+        if self.use_pgr:
+            self.actor_real = copy.deepcopy(self.actor)
+            self.actor_real.requires_grad_(False)
 
         # Q ensemble + target ensemble
         self.q_nets: List[QNetwork] = [
@@ -99,9 +111,6 @@ class REDQSACAgent:
                     p_targ.data.add_(self.tau * p.data)
 
     def update(self, replay_buffer):
-        """
-        Perform utd_ratio gradient steps per environment step.
-        """
         logs = {}
         for _ in range(self.utd_ratio):
             batch = replay_buffer.sample(self.batch_size)
@@ -116,25 +125,27 @@ class REDQSACAgent:
             with torch.no_grad():
                 next_action, next_log_prob, _ = self.actor.sample(next_obs)
 
-                # REDQ trick: sample a subset of target Q nets
                 q_targ_vals = []
                 idxs = np.random.choice(self.num_q_nets, self.num_q_samples, replace=False)
+
                 for i in idxs:
                     q_targ_vals.append(self.q_targets[i](next_obs, next_action))
-                q_targ_vals = torch.cat(q_targ_vals, dim=1)  # (B, num_samples)
+
+                q_targ_vals = torch.cat(q_targ_vals, dim=1)
                 min_q_next = q_targ_vals.min(dim=1, keepdim=True)[0]
 
-                target_q = rewards + self.gamma * (1 - dones) * (
-                    min_q_next - self.alpha * next_log_prob
-                )
+                target_q = rewards + self.gamma * (1 - dones) * \
+                           (min_q_next - self.alpha * next_log_prob)
 
             q_losses = []
             for q_net, q_opt in zip(self.q_nets, self.q_opts):
                 q_pred = q_net(obs, actions)
                 q_loss = F.mse_loss(q_pred, target_q)
+
                 q_opt.zero_grad()
                 q_loss.backward()
                 q_opt.step()
+
                 q_losses.append(q_loss.item())
 
             # ----------------------- Actor update ----------------------
@@ -142,10 +153,28 @@ class REDQSACAgent:
 
             q_values_new = torch.cat(
                 [q_net(obs, new_actions) for q_net in self.q_nets], dim=1
-            )  # (B, num_q)
+            )
             mean_q_new = q_values_new.mean(dim=1, keepdim=True)
 
             actor_loss = (self.alpha * log_probs - mean_q_new).mean()
+
+            # ----------------------- PGR (true SYNTHER version) ----------------------
+            if self.use_pgr and self.pgr_coef > 0.0:
+
+                mu, _ = self.actor(obs)
+
+                pgr_loss = 0.0
+                for m in mu:     # loop over batch
+                    grads = torch.autograd.grad(
+                        outputs=m,
+                        inputs=list(self.actor.parameters()),
+                        retain_graph=True,
+                        create_graph=True
+                    )
+                    for g in grads:
+                        pgr_loss += (g**2).sum()
+
+                actor_loss = actor_loss + self.pgr_coef * pgr_loss
 
             self.actor_opt.zero_grad()
             actor_loss.backward()

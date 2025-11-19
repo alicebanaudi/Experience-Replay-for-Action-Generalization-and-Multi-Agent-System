@@ -44,6 +44,31 @@ class ReplayBuffer:
             dones=self.done_buf[idxs],
         )
         return batch
+    
+    def add_synthetic(self, synthetic_batch):
+        """
+    Inserts a batch of synthetic transitions into the replay buffer.
+
+    synthetic_batch: np.ndarray of shape [N, transition_dim]
+        where transition_dim = obs_dim + act_dim + obs_dim + 1 + 1
+          → [state | action | reward | next_state | done]
+    """
+
+        obs_dim = self.obs_buf.shape[1]
+        act_dim = self.act_buf.shape[1]
+
+        for x in synthetic_batch:
+            # Extract components
+            s = x[:obs_dim]
+            a = x[obs_dim : obs_dim + act_dim]
+            r = float(x[obs_dim + act_dim])
+            ns = x[obs_dim + act_dim + 1 : obs_dim + act_dim + 1 + obs_dim]
+            d = bool(x[-1] > 0.5)  # convert to boolean
+
+            # Insert into buffer
+            self.add(s, a, r, ns, d)
+
+
 
     def __len__(self):
         return self.size

@@ -8,39 +8,79 @@ from tqdm import trange
 from env.sumo_env import SumoContinuousEnv
 from replay.buffer import ReplayBuffer
 from agents.redq_sac import REDQSACAgent
-import os
 from sumo_rl import __file__ as sumo_rl_path
 
+from models.diffusion import DiffusionModel
+from models.diffusion_trainer import DiffusionTrainer
+from models.synthetic_generator import SyntheticGenerator
+
+
+# ============================================================
+# CONFIG — choose which version of the algorithm to run
+# ============================================================
+
+CONFIG = {
+    "mode": "synther_pgr",       # baseline | synther | synther_pgr
+
+    # SYNTHER parameters
+    "synther_interval": 10_000,
+    "synther_batch": 2000,
+    "diffusion_interval": 5_000,
+
+    # PGR parameters
+    "pgr_coef": 1.0,
+}
+
+
+# ============================================================
+# Create SUMO environment
+# ============================================================
 
 def make_env():
     SUMO_RL_DIR = os.path.dirname(sumo_rl_path)
     NETS_DIR = os.path.join(SUMO_RL_DIR, "nets")
 
     EXPERIMENT = "single-intersection"
-    # TODO: point to your own SUMO net/route files
+
     net_file = os.path.join(NETS_DIR, EXPERIMENT, f"{EXPERIMENT}.net.xml")
     route_file = os.path.join(NETS_DIR, EXPERIMENT, f"{EXPERIMENT}.rou.xml")
-    
-    env = SumoContinuousEnv(
+
+    return SumoContinuousEnv(
         net_file=net_file,
         route_file=route_file,
         use_gui=False,
         min_green=5.0,
         max_green=60.0,
     )
-    return env
 
+
+# ============================================================
+# Main Training Loop
+# ============================================================
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
+    mode = CONFIG["mode"]
+    use_synther = (mode in ["synther", "synther_pgr"])
+    use_pgr = (mode == "synther_pgr")
+
+    print(f"\n=== TRAINING MODE: {mode} ===")
+    print(f"Synther enabled? {use_synther}")
+    print(f"PGR enabled?     {use_pgr}\n")
+
+    # -----------------------
+    # Environment + buffers
+    # -----------------------
     env = make_env()
     obs_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
 
-    buffer_capacity = int(1e6)
-    replay_buffer = ReplayBuffer(buffer_capacity, obs_dim, act_dim)
+    replay_buffer = ReplayBuffer(int(1e6), obs_dim, act_dim)
 
+    # -----------------------
+    # Agent
+    # -----------------------
     agent = REDQSACAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
@@ -50,12 +90,28 @@ def main():
         gamma=0.99,
         tau=0.005,
         lr=3e-4,
-        utd_ratio=20,      # as in SYNTHER online experiments
+        utd_ratio=20,
         batch_size=256,
+        use_pgr=use_pgr,
+        pgr_coef=CONFIG["pgr_coef"] if use_pgr else 0.0,
     )
 
-    total_steps = 100_000
-    start_steps = 10_000  # fill buffer with random actions before training
+    # -----------------------
+    # SYNTHER SETUP
+    # -----------------------
+    if use_synther:
+        transition_dim = obs_dim + act_dim + obs_dim + 2  # s+a+s'+r+done
+        diffusion_model = DiffusionModel(dim=transition_dim, timesteps=50)
+        diffusion_trainer = DiffusionTrainer(diffusion_model, device=device)
+        synthetic_gen = SyntheticGenerator(diffusion_model, device=device)
+    else:
+        diffusion_model = diffusion_trainer = synthetic_gen = None
+
+    # -----------------------
+    # Training loop
+    # -----------------------
+    total_steps = 10_000
+    start_steps = 5_000
     eval_interval = 5_000
 
     obs, _ = env.reset()
@@ -63,6 +119,9 @@ def main():
     episode_len = 0
 
     for t in trange(total_steps):
+        # ---------------------------------------------------------
+        # Action selection
+        # ---------------------------------------------------------
         if t < start_steps:
             action = env.action_space.sample()
         else:
@@ -77,23 +136,51 @@ def main():
         episode_return += reward
         episode_len += 1
 
+        # ---------------------------------------------------------
+        # Episode ended
+        # ---------------------------------------------------------
         if done:
             print(f"Step {t}: episode return={episode_return:.2f}, len={episode_len}")
             obs, _ = env.reset()
             episode_return = 0.0
             episode_len = 0
 
-        # Update agent after we have enough data
+        # ---------------------------------------------------------
+        # Agent update
+        # ---------------------------------------------------------
         if t >= start_steps and len(replay_buffer) >= agent.batch_size:
             logs = agent.update(replay_buffer)
 
-        # Simple evaluation hook (you can expand later)
+        # ---------------------------------------------------------
+        # === Diffusion Training === (only if synther)
+        # ---------------------------------------------------------
+        if use_synther and t > start_steps:
+            if t % CONFIG["diffusion_interval"] == 0 and len(replay_buffer) > 10_000:
+                diff_loss = diffusion_trainer.train_step(replay_buffer)
+                print(f"[Diffusion] step={t} loss={diff_loss:.4f}")
+
+        # ---------------------------------------------------------
+        # === SYNTHETIC DATA INJECTION ===
+        # ---------------------------------------------------------
+        if use_synther and t > start_steps:
+            if t % CONFIG["synther_interval"] == 0:
+                synthetic = synthetic_gen.sample(CONFIG["synther_batch"])
+                replay_buffer.add_synthetic(synthetic)
+                print(f"[Synther] Added {len(synthetic)} synthetic transitions")
+
+        # ---------------------------------------------------------
+        # Evaluation
+        # ---------------------------------------------------------
         if (t + 1) % eval_interval == 0:
             eval_return = evaluate(env, agent, episodes=3)
             print(f"[Eval @ step {t+1}] avg return={eval_return:.2f}")
 
     env.close()
 
+
+# ============================================================
+# Evaluation
+# ============================================================
 
 def evaluate(env, agent, episodes=5):
     returns = []
