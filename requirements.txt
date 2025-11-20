@@ -1,0 +1,16 @@
+torch
+numpy
+gymnasium
+tqdm
+sumo-rl
+matplotlib
+
+# Diffusion model dependencies
+einops
+scipy
+
+# Optional (stability / utils)
+pandas
+
+# For debugging SUMO (optional)
+traci
