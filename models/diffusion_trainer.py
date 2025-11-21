@@ -10,7 +10,7 @@ class DiffusionTrainer:
         self.optim = torch.optim.Adam(model.parameters(), lr=lr)
         self.device = device
 
-    def train_step(self, replay, batch_size=256):
+    def train_step(self, replay, batch_size=64):
         batch = replay.sample(batch_size)
         x0 = self._pack(batch).to(self.device)
 

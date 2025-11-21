@@ -23,9 +23,8 @@ CONFIG = {
     "mode": "synther_pgr",       # baseline | synther | synther_pgr
 
     # SYNTHER parameters
-    "synther_interval": 10_000,
-    "synther_batch": 2000,
-    "diffusion_interval": 5_000,
+    "synther_batch": 200,        # only once at step 5000
+    "diffusion_interval": 20_000,  # unused for now (disabled)
 
     # PGR parameters
     "pgr_coef": 1.0,
@@ -79,18 +78,18 @@ def main():
     replay_buffer = ReplayBuffer(int(1e6), obs_dim, act_dim)
 
     # -----------------------
-    # Agent
+    # Agent (lighter version)
     # -----------------------
     agent = REDQSACAgent(
         obs_dim=obs_dim,
         act_dim=act_dim,
         device=device,
-        num_q_nets=10,
+        num_q_nets=3,        # reduced
         num_q_samples=2,
         gamma=0.99,
         tau=0.005,
         lr=3e-4,
-        utd_ratio=20,
+        utd_ratio=2,         # reduced
         batch_size=256,
         use_pgr=use_pgr,
         pgr_coef=CONFIG["pgr_coef"] if use_pgr else 0.0,
@@ -101,7 +100,7 @@ def main():
     # -----------------------
     if use_synther:
         transition_dim = obs_dim + act_dim + obs_dim + 2  # s+a+s'+r+done
-        diffusion_model = DiffusionModel(dim=transition_dim, timesteps=50)
+        diffusion_model = DiffusionModel(dim=transition_dim, timesteps=5)
         diffusion_trainer = DiffusionTrainer(diffusion_model, device=device)
         synthetic_gen = SyntheticGenerator(diffusion_model, device=device)
     else:
@@ -152,27 +151,18 @@ def main():
             logs = agent.update(replay_buffer)
 
         # ---------------------------------------------------------
-        # === Diffusion Training === (only if synther)
+        # === SINGLE SYNTHER INJECTION AT STEP 5000 ===
         # ---------------------------------------------------------
-        if use_synther and t > start_steps:
-            if t % CONFIG["diffusion_interval"] == 0 and len(replay_buffer) > 10_000:
-                diff_loss = diffusion_trainer.train_step(replay_buffer)
-                print(f"[Diffusion] step={t} loss={diff_loss:.4f}")
+        if use_synther and t == start_steps:
+            synthetic = synthetic_gen.sample(CONFIG["synther_batch"])
+            replay_buffer.add_synthetic(synthetic)
+            print(f"[Synther] Added {len(synthetic)} synthetic transitions")
 
         # ---------------------------------------------------------
-        # === SYNTHETIC DATA INJECTION ===
+        # Evaluation (baseline only)
         # ---------------------------------------------------------
-        if use_synther and t > start_steps:
-            if t % CONFIG["synther_interval"] == 0:
-                synthetic = synthetic_gen.sample(CONFIG["synther_batch"])
-                replay_buffer.add_synthetic(synthetic)
-                print(f"[Synther] Added {len(synthetic)} synthetic transitions")
-
-        # ---------------------------------------------------------
-        # Evaluation
-        # ---------------------------------------------------------
-        if (t + 1) % eval_interval == 0:
-            eval_return = evaluate(env, agent, episodes=3)
+        if mode == "baseline" and (t + 1) % eval_interval == 0:
+            eval_return = evaluate(env, agent, episodes=1)
             print(f"[Eval @ step {t+1}] avg return={eval_return:.2f}")
 
     env.close()
