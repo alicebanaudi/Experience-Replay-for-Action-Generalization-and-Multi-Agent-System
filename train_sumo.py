@@ -23,7 +23,7 @@ CONFIG = {
     "mode": "synther_pgr",       # baseline | synther | synther_pgr
 
     # SYNTHER parameters
-    "synther_batch": 200,        # only once at step 5000
+    "synther_batch": 20,        # only once at step 5000
     "diffusion_interval": 20_000,  # unused for now (disabled)
 
     # PGR parameters
@@ -47,7 +47,7 @@ def make_env():
     return SumoContinuousEnv(
         net_file=net_file,
         route_file=route_file,
-        use_gui=False,
+        use_gui=True,
         min_green=5.0,
         max_green=60.0,
     )
@@ -110,7 +110,7 @@ def main():
     # Training loop
     # -----------------------
     total_steps = 10_000
-    start_steps = 5_000
+    start_steps = 8_000
     eval_interval = 5_000
 
     obs, _ = env.reset()
@@ -165,6 +165,7 @@ def main():
             eval_return = evaluate(env, agent, episodes=1)
             print(f"[Eval @ step {t+1}] avg return={eval_return:.2f}")
 
+    torch.save(agent.actor.state_dict(), "actor_final.pth")
     env.close()
 
 

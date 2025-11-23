@@ -141,12 +141,18 @@ class REDQSACAgent:
             for q_net, q_opt in zip(self.q_nets, self.q_opts):
                 q_pred = q_net(obs, actions)
                 q_loss = F.mse_loss(q_pred, target_q)
+                q_loss = torch.clamp(q_loss, max=50.0)
 
                 q_opt.zero_grad()
                 q_loss.backward()
+
+                # ===== Gradient Clipping for Q-net =====
+                torch.nn.utils.clip_grad_norm_(q_net.parameters(), max_norm=5.0)
+
                 q_opt.step()
 
                 q_losses.append(q_loss.item())
+
 
             # ----------------------- Actor update ----------------------
             new_actions, log_probs, _ = self.actor.sample(obs)
@@ -157,6 +163,8 @@ class REDQSACAgent:
             mean_q_new = q_values_new.mean(dim=1, keepdim=True)
 
             actor_loss = (self.alpha * log_probs - mean_q_new).mean()
+            actor_loss = torch.clamp(actor_loss, max=50.0)
+
 
             # ----------------------- PGR (true SYNTHER version) ----------------------
             if self.use_pgr and self.pgr_coef > 0.0:
@@ -175,10 +183,17 @@ class REDQSACAgent:
                         pgr_loss += (g**2).sum()
 
                 actor_loss = actor_loss + self.pgr_coef * pgr_loss
+                actor_loss = torch.clamp(actor_loss, max=50.0)
+
 
             self.actor_opt.zero_grad()
             actor_loss.backward()
+
+            # ===== Gradient Clipping for Actor =====
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=5.0)
+
             self.actor_opt.step()
+
 
             # ----------------------- Alpha update ----------------------
             alpha_loss = -(self.log_alpha * (log_probs + self.target_entropy).detach()).mean()
