@@ -20,7 +20,7 @@ from models.synthetic_generator import SyntheticGenerator
 # ============================================================
 
 CONFIG = {
-    "mode": "synther_pgr",       # baseline | synther | synther_pgr
+    "mode": "baseline",       # baseline | synther | synther_pgr
 
     # SYNTHER parameters
     "synther_batch": 20,        # only once at step 5000
@@ -109,8 +109,8 @@ def main():
     # -----------------------
     # Training loop
     # -----------------------
-    total_steps = 10_000
-    start_steps = 8_000
+    total_steps = 50_000
+    start_steps = 2_000
     eval_interval = 5_000
 
     obs, _ = env.reset()
@@ -166,7 +166,7 @@ def main():
             print(f"[Eval @ step {t+1}] avg return={eval_return:.2f}")
 
 
-    torch.save(agent.actor.state_dict(), "actor_final.pth")
+    torch.save(agent.actor.state_dict(), "{mode}_actor_final.pth")
     env.close()
 
 

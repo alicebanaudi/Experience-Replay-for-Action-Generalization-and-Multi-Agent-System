@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+import time
 
 from env.sumo_env import SumoContinuousEnv
 from agents.redq_sac import REDQSACAgent
@@ -87,6 +88,7 @@ def main():
 
         total_reward += reward
         step += 1
+        time.sleep(1)
 
     env.close()
     print(f"\n[VIS] Episode finished: steps={step}, total reward={total_reward:.2f}")
