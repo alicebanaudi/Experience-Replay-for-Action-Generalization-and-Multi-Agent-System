@@ -1,71 +1,96 @@
 import os
 import numpy as np
 import torch
+
 from env.sumo_env import SumoContinuousEnv
 from agents.redq_sac import REDQSACAgent
+from sumo_rl import __file__ as sumo_rl_path
 
-# ============================================================
-# Load the final trained agent
-# ============================================================
+MODEL_PATH = "actor_final.pth"   # same name as in train_sumo.py
 
-MODEL_PATH = "agent_final.pth"     # or whatever name you used
+def make_env(use_gui: bool):
+    SUMO_RL_DIR = os.path.dirname(sumo_rl_path)
+    NETS_DIR = os.path.join(SUMO_RL_DIR, "nets")
+    EXPERIMENT = "single-intersection"
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+    net_file = os.path.join(NETS_DIR, EXPERIMENT, f"{EXPERIMENT}.net.xml")
+    route_file = os.path.join(NETS_DIR, EXPERIMENT, f"{EXPERIMENT}.rou.xml")
 
-# These must match your training settings
-obs_dim = 50      # CHANGE THIS if your actual observation dimension differs
-act_dim = 1
+    env = SumoContinuousEnv(
+        net_file=net_file,
+        route_file=route_file,
+        use_gui=use_gui,
+        min_green=5.0,
+        max_green=60.0,
+    )
+    return env
 
-agent = REDQSACAgent(
-    obs_dim=obs_dim,
-    act_dim=act_dim,
-    device=device,
-    num_q_nets=5,
-    num_q_samples=2,
-    use_pgr=False,      # PGR not needed for inference
-)
 
-agent.actor.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-agent.actor.eval()
+def main():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
 
-# ============================================================
-# Correct SUMO path for your environment
-# ============================================================
+    # ----------------------------------------------------
+    # 1) Build a dummy env to infer obs_dim and act_dim
+    # ----------------------------------------------------
+    tmp_env = make_env(use_gui=False)
+    obs_dim = tmp_env.observation_space.shape[0]
+    act_dim = tmp_env.action_space.shape[0]
+    tmp_env.close()
 
-NET_DIR = "/usr/local/lib/python3.12/dist-packages/sumo_rl/nets/single-intersection"
+    print(f"Detected obs_dim={obs_dim}, act_dim={act_dim}")
 
-net_file = os.path.join(NET_DIR, "single-intersection.net.xml")
-route_file = os.path.join(NET_DIR, "single-intersection.rou.xml")
+    # ----------------------------------------------------
+    # 2) Rebuild agent with SAME dims as training
+    # ----------------------------------------------------
+    agent = REDQSACAgent(
+        obs_dim=obs_dim,
+        act_dim=act_dim,
+        device=device,
+        # the following don't matter for loading the actor,
+        # but we set small ones for cleanliness
+        num_q_nets=3,
+        num_q_samples=2,
+        gamma=0.99,
+        tau=0.005,
+        lr=3e-4,
+        utd_ratio=1,
+        batch_size=256,
+        use_pgr=False,        # PGR not needed for evaluation
+        pgr_coef=0.0,
+    )
 
-# ============================================================
-# Create SUMO env for visualization
-# ============================================================
+    # Load actor weights
+    state_dict = torch.load(MODEL_PATH, map_location=device)
+    agent.actor.load_state_dict(state_dict)
+    agent.actor.eval()
+    print("Loaded actor weights from", MODEL_PATH)
 
-env = SumoContinuousEnv(
-    net_file=net_file,
-    route_file=route_file,
-    use_gui=True,          # <<<< SHOW GUI
-    min_green=5.0,
-    max_green=60.0,
-)
+    # ----------------------------------------------------
+    # 3) Create GUI environment for visualization
+    # ----------------------------------------------------
+    env = make_env(use_gui=True)
+    obs, _ = env.reset()
+    done = False
+    total_reward = 0.0
+    step = 0
 
-# ============================================================
-# Run one episode using the learned policy
-# ============================================================
+    print("\nRunning visualization episode with GUI...\n")
 
-obs, _ = env.reset()
-done = False
-step = 0
-total_reward = 0
+    while not done:
+        # Deterministic (mean) action from policy
+        action = agent.select_action(obs, deterministic=True)
 
-print("\nRunning visualization episode...\n")
+        # Gymnasium step: obs, reward, terminated, truncated, info
+        obs, reward, terminated, truncated, info = env.step(action)
+        done = terminated or truncated
 
-while not done:
-    action = agent.select_action(obs, deterministic=True)
-    obs, reward, done, _, info = env.step(action)
-    total_reward += reward
-    step += 1
+        total_reward += reward
+        step += 1
 
-env.close()
+    env.close()
+    print(f"\n[VIS] Episode finished: steps={step}, total reward={total_reward:.2f}")
 
-print(f"\nEpisode finished: steps={step}, total reward={total_reward:.2f}")
+
+if __name__ == "__main__":
+    main()

@@ -159,11 +159,12 @@ def main():
             print(f"[Synther] Added {len(synthetic)} synthetic transitions")
 
         # ---------------------------------------------------------
-        # Evaluation (baseline only)
+        # Evaluation 
         # ---------------------------------------------------------
-        if mode == "baseline" and (t + 1) % eval_interval == 0:
+        if (t + 1) % eval_interval == 0:
             eval_return = evaluate(env, agent, episodes=1)
             print(f"[Eval @ step {t+1}] avg return={eval_return:.2f}")
+
 
     torch.save(agent.actor.state_dict(), "actor_final.pth")
     env.close()
