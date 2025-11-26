@@ -23,7 +23,7 @@ CONFIG = {
     "mode": "synther_pgr",       # baseline | synther | synther_pgr
 
     # SYNTHER parameters
-    "synther_batch": 20,
+    "synther_batch": 200,
     "diffusion_interval": 20_000,  
 
     # PGR parameters
@@ -84,15 +84,17 @@ def main():
         obs_dim=obs_dim,
         act_dim=act_dim,
         device=device,
-        num_q_nets=3,        # reduced
+        num_q_nets=3,        
         num_q_samples=2,
         gamma=0.99,
         tau=0.005,
         lr=3e-4,
-        utd_ratio=2,         # reduced
+        utd_ratio=2,         
         batch_size=256,
         use_pgr=use_pgr,
         pgr_coef=CONFIG["pgr_coef"] if use_pgr else 0.0,
+        pgr_every=10, 
+        pgr_batch=32,
     )
 
     # -----------------------
@@ -153,10 +155,12 @@ def main():
         # ---------------------------------------------------------
         # === SINGLE SYNTHER INJECTION AT STEP 5000 ===
         # ---------------------------------------------------------
-        if use_synther and t == start_steps:
+        if use_synther and t % 5000 == 0 and t > start_steps:
+            for _ in range(50):  # 50 small gradient steps
+                diffusion_trainer.train_step(replay_buffer, batch_size=256)
             synthetic = synthetic_gen.sample(CONFIG["synther_batch"])
             replay_buffer.add_synthetic(synthetic)
-            print(f"[Synther] Added {len(synthetic)} synthetic transitions")
+            print(f"[Synther] Added {len(synthetic)} synthetic transitions at step {t}")
 
         # ---------------------------------------------------------
         # Evaluation 
