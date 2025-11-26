@@ -40,6 +40,8 @@ class REDQSACAgent:
         target_entropy: float = None,
         use_pgr: bool = False,
         pgr_coef: float = 0.0,
+        pgr_every=10, 
+        pgr_batch=32,
     ):
         self.device = device
         self.obs_dim = obs_dim
@@ -54,6 +56,9 @@ class REDQSACAgent:
 
         self.use_pgr = use_pgr
         self.pgr_coef = pgr_coef
+        self.pgr_every = pgr_every
+        self.pgr_batch = pgr_batch
+        self.update_steps = 0
 
         # Actor
         self.actor = GaussianPolicy(obs_dim, act_dim).to(device)
@@ -113,6 +118,7 @@ class REDQSACAgent:
     def update(self, replay_buffer):
         logs = {}
         for _ in range(self.utd_ratio):
+            self.update_steps += 1
             batch = replay_buffer.sample(self.batch_size)
 
             obs = torch.as_tensor(batch["obs"], dtype=torch.float32, device=self.device)
@@ -166,13 +172,20 @@ class REDQSACAgent:
             actor_loss = torch.clamp(actor_loss, max=50.0)
 
 
-            # ----------------------- PGR (true SYNTHER version) ----------------------
-            if self.use_pgr and self.pgr_coef > 0.0:
+            # ----------------------- PGR (lightweight version) ----------------------
+            if (
+                self.use_pgr
+                and self.pgr_coef > 0.0
+                and self.update_steps % self.pgr_every == 0
+            ):
+                # Subsample a smaller batch for PGR
+                idx = torch.randperm(obs.size(0))[: self.pgr_batch]
+                obs_pgr = obs[idx]
 
-                mu, _ = self.actor(obs)
+                mu_pgr, _ = self.actor(obs_pgr)
 
                 pgr_loss = 0.0
-                for m in mu:     # loop over batch
+                for m in mu_pgr:
                     grads = torch.autograd.grad(
                         outputs=m,
                         inputs=list(self.actor.parameters()),
@@ -182,12 +195,8 @@ class REDQSACAgent:
                     for g in grads:
                         pgr_loss += (g**2).sum()
 
+                # Add scaled PGR penalty
                 actor_loss = actor_loss + self.pgr_coef * pgr_loss
-                actor_loss = torch.clamp(actor_loss, max=50.0)
-
-
-            self.actor_opt.zero_grad()
-            actor_loss.backward()
 
             # ===== Gradient Clipping for Actor =====
             torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=5.0)

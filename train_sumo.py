@@ -20,14 +20,14 @@ from models.synthetic_generator import SyntheticGenerator
 # ============================================================
 
 CONFIG = {
-    "mode": "baseline",       # baseline | synther | synther_pgr
+    "mode": "synther_pgr",       # baseline | synther | synther_pgr
 
     # SYNTHER parameters
-    "synther_batch": 20,        # only once at step 5000
-    "diffusion_interval": 20_000,  # unused for now (disabled)
+    "synther_batch": 20,
+    "diffusion_interval": 20_000,  
 
     # PGR parameters
-    "pgr_coef": 1.0,
+    "pgr_coef": 1e-4,
 }
 
 
@@ -47,7 +47,7 @@ def make_env():
     return SumoContinuousEnv(
         net_file=net_file,
         route_file=route_file,
-        use_gui=True,
+        use_gui=False,
         min_green=5.0,
         max_green=60.0,
     )
@@ -111,7 +111,7 @@ def main():
     # -----------------------
     total_steps = 50_000
     start_steps = 2_000
-    eval_interval = 5_000
+    eval_interval = 25_000
 
     obs, _ = env.reset()
     episode_return = 0.0
@@ -166,7 +166,7 @@ def main():
             print(f"[Eval @ step {t+1}] avg return={eval_return:.2f}")
 
 
-    torch.save(agent.actor.state_dict(), "{mode}_actor_final.pth")
+    torch.save(agent.actor.state_dict(), "synther_pgr_actor_final.pth")
     env.close()
 
 
