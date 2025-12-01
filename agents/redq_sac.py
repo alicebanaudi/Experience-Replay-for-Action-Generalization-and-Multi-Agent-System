@@ -115,7 +115,7 @@ class REDQSACAgent:
                     p_targ.data.mul_(1 - self.tau)
                     p_targ.data.add_(self.tau * p.data)
 
-    def update(self, replay_buffer):
+    def update(self, replay_buffer, synthetic_ratio=0.0):
         logs = {}
         for _ in range(self.utd_ratio):
             self.update_steps += 1
