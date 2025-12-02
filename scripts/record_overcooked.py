@@ -31,8 +31,7 @@ def main():
     act_dim = env.action_space.shape[0]
 
     # 2. Init Visualizer (The tool that draws the graphics)
-    visualizer = StateVisualizer.from_mdp(env.mdp)
-    
+    visualizer = StateVisualizer()    
     # 3. Load Agent
     device = "cpu"
     agent = REDQSACAgent(obs_dim, act_dim, device=device)

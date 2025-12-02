@@ -6,7 +6,8 @@ import time
 
 # --- IMPORTS ---
 # Ensure Python can find your folders
-sys.path.append(os.path.join(os.getcwd(), 'src')) # Adjust if your src is elsewhere
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
 
 from agents.redq_sac import REDQSACAgent
 from env.overcooked_wrapper import OvercookedMAEnv
@@ -15,7 +16,7 @@ from env.overcooked_wrapper import OvercookedMAEnv
 # CONFIGURATION
 # ============================================================
 # Make sure this matches the filename you see in your 'results' folder
-MODEL_PATH = "results/overcooked_synther_v1_actor.pth" 
+MODEL_PATH = " results/overcooked_BASELINE_final.pth"  # <--- CHECK FILENAME
 LAYOUT = "cramped_room"
 
 def main():
