@@ -5,8 +5,6 @@ import numpy as np
 
 # --- PATH SETUP ---
 # This ensures Python can find your 'src' folder even if you didn't run 'pip install -e .'
-current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(current_dir) # The root 'experience-replay-gen' folder
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
