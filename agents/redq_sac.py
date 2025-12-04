@@ -161,6 +161,8 @@ class REDQSACAgent:
 
 
             # ----------------------- Actor update ----------------------
+            self.actor_opt.zero_grad()
+
             new_actions, log_probs, _ = self.actor.sample(obs)
 
             q_values_new = torch.cat(
@@ -171,17 +173,14 @@ class REDQSACAgent:
             actor_loss = (self.alpha * log_probs - mean_q_new).mean()
             actor_loss = torch.clamp(actor_loss, max=50.0)
 
-
-            # ----------------------- PGR (lightweight version) ----------------------
+            # ----------------------- PGR ----------------------
             if (
                 self.use_pgr
                 and self.pgr_coef > 0.0
                 and self.update_steps % self.pgr_every == 0
             ):
-                # Subsample a smaller batch for PGR
                 idx = torch.randperm(obs.size(0))[: self.pgr_batch]
                 obs_pgr = obs[idx]
-
                 mu_pgr, _ = self.actor(obs_pgr)
 
                 pgr_loss = 0.0
@@ -190,18 +189,22 @@ class REDQSACAgent:
                         outputs=m,
                         inputs=list(self.actor.parameters()),
                         retain_graph=True,
-                        create_graph=True
+                        create_graph=True,
                     )
                     for g in grads:
                         pgr_loss += (g**2).sum()
 
-                # Add scaled PGR penalty
                 actor_loss = actor_loss + self.pgr_coef * pgr_loss
 
-            # ===== Gradient Clipping for Actor =====
+            # ---- now correctly compute gradients ----
+            actor_loss.backward()
+
+            # ---- gradient clipping ----
             torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=5.0)
 
+            # ---- update actor ----
             self.actor_opt.step()
+
 
 
             # ----------------------- Alpha update ----------------------
