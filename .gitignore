@@ -1,0 +1,68 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- Virtual Environments ---
+# Common names for envs
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# --- IDE Settings ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Project Specific: Logs & Results (Crucial!) ---
+# Don't upload trained models (they are huge)
+*.pth
+*.pt
+*.pkl
+*.h5
+
+# Don't upload the results folder
+results/
+logs/
+data/
+
+# --- Weights & Biases (WandB) ---
+# WandB creates massive local log folders
+wandb/
+
+# --- SUMO Traffic Simulator ---
+# Don't upload generated trip info or logs
+*.tripinfo.xml
+*.rou.alt.xml
+*.log
+*.out
+
+# --- Jupyter Notebooks ---
+# Don't upload checkpoint folders
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# --- Mac OS Junk ---
+.DS_Store
