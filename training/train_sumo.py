@@ -1,9 +1,12 @@
-# training/train_sumo.py
-
 import os
+import sys
 import numpy as np
 import torch
 from tqdm import trange
+
+
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
 
 from env.sumo_env import SumoContinuousEnv
 from replay.buffer import ReplayBuffer
@@ -13,7 +16,6 @@ from sumo_rl import __file__ as sumo_rl_path
 from models.diffusion import DiffusionModel
 from models.diffusion_trainer import DiffusionTrainer
 from models.synthetic_generator import SyntheticGenerator
-
 
 # ============================================================
 # CONFIG — choose which version of the algorithm to run
