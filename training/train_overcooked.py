@@ -24,8 +24,8 @@ MODE = "baseline"
 
 CONFIG = {
     "layout": "cramped_room",
-    "total_steps": 150_000,      
-    "start_steps": 5_000,       
+    "total_steps": 300_000,      
+    "start_steps": 10_000,       
     "batch_size": 256,
     
     # Mode-Specific Defaults (Will be overwritten by setup logic below)
@@ -38,9 +38,9 @@ CONFIG = {
     "pgr_coef": 0.0,
     
     # Diffusion Settings
-    "diffusion_freq": 15_000,   # Retrain slightly more often (every 15k)
-    "diffusion_steps": 1_000,   # Good depth
-    "generate_count": 25_000,   # Generate 25k samples per cycle
+    "diffusion_freq": 30_000,   # Retrain slightly more often (every 15k)
+    "diffusion_steps": 5_000,   # Good depth
+    "generate_count": 40_000,   # Generate 25k samples per cycle
     "synthetic_ratio": 0.5,
 }
 
@@ -61,7 +61,7 @@ elif MODE == "synther":
 elif MODE == "pgr":
     CONFIG["use_synther"] = True
     CONFIG["use_pgr"] = True
-    CONFIG["pgr_coef"] = 1e-4  # Standard penalty weight
+    CONFIG["pgr_coef"] = 1e-5  # Standard penalty weight
     CONFIG["exp_name"] = "overcooked_PGR"
 
 # ============================================================
