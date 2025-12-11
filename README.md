@@ -47,3 +47,4 @@ Our goal is to evaluate whether generative replay can scale from **single-agent 
 ## Checkpoints and Models
 
 - SAC Actor: [Download Link](https://drive.google.com/file/d/19gw3RGVBaDCeZm6WQ-_aXapJcMbvVhgg/view?usp=drive_link)
+- PGR Actor: [Download Link](https://drive.google.com/file/d/1PlnYWKZh1yFg0QB9xv_quKAV9DKtAf6e/view?usp=drive_link)
