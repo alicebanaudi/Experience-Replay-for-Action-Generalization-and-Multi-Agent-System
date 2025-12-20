@@ -2,6 +2,7 @@ import os
 import sys
 import numpy as np
 import torch
+import gymnasium as gym
 from tqdm import trange
 
 # --- PATH SETUP ---
@@ -9,154 +10,179 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
 # --- IMPORTS ---
-from env.overcooked_wrapper import OvercookedMAEnv 
-from agents.redq_sac import REDQSACAgent
+from env.overcooked_wrapper import OvercookedSingleAgentEnv 
+from agents.redq_sac_overcooked import REDQSACAgent
 from replay.buffer import ReplayBuffer
+# Assuming you have these files for Synther:
 from models.diffusion import DiffusionModel
 from models.diffusion_trainer import DiffusionTrainer
 from models.synthetic_generator import SyntheticGenerator
 
+class Silence:
+    """Context manager to suppress stdout/stderr"""
+    def __enter__(self):
+        self._original_stdout = sys.stdout
+        sys.stdout = open(os.devnull, 'w')
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stdout.close()
+        sys.stdout = self._original_stdout
 # ============================================================
 # 🎛️ EXPERIMENT CONTROL CENTER
 # ============================================================
-# CHOOSE YOUR MODE HERE: "baseline" | "synther" | "pgr"
+# OPTIONS: "baseline" | "synther" | "pgr"
 MODE = "baseline" 
 
 CONFIG = {
-    "layout": "cramped_room",
-    "total_steps": 150_000,      
-    "start_steps": 5_000,       
-    "batch_size": 256,
+    # --- Environment ---
+    "layout": "asymmetric_advantages", 
+    "total_steps": 500_000,     
+    "start_steps": 10_000,        # Collect real data first
+    "num_envs": 20,               # A100 Speed Boost
     
-    # Mode-Specific Defaults (Will be overwritten by setup logic below)
-    "exp_name": f"overcooked_{MODE}",
-    "utd_ratio": 10,            # High UTD for all (REDQ standard)
+    # --- REDQ / Training ---
+    "batch_size": 2048,           
+    "utd_ratio": 20,              
+    "exp_name": f"overcooked_vectorized_{MODE}",
     
-    # Synther / PGR Settings
-    "use_synther": False,       # Default OFF
-    "use_pgr": False,           # Default OFF
+    # --- Defaults (Modified by Mode below) ---
+    "use_synther": False,
+    "use_pgr": False,
     "pgr_coef": 0.0,
+    "synthetic_ratio": 0.5,       # Half real, half fake in batch
     
-    # Diffusion Settings
-    "diffusion_freq": 15_000,   # Retrain slightly more often (every 15k)
-    "diffusion_steps": 1_000,   # Good depth
-    "generate_count": 25_000,   # Generate 25k samples per cycle
-    "synthetic_ratio": 0.5,
+    # --- Diffusion Settings ---
+    "diffusion_freq": 50_000,     # Train diffusion every 50k steps
+    "diffusion_train_steps": 5_000, 
+    "generate_count": 50_000,     # How many synthetic samples to create
 }
 
-# --- AUTOMATIC CONFIG SETUP ---
+# --- AUTOMATIC MODE SETUP ---
 if MODE == "baseline":
     CONFIG["use_synther"] = False
     CONFIG["use_pgr"] = False
-    CONFIG["exp_name"] = "overcooked_BASELINE"
-    # Baseline usually runs better with lower UTD if no synthetic data is present
-    # But for fair comparison, we often keep UTD high or lower it to 1.
-    # Let's keep it high (REDQ style) to see if it overfits without data.
 
 elif MODE == "synther":
     CONFIG["use_synther"] = True
     CONFIG["use_pgr"] = False
-    CONFIG["exp_name"] = "overcooked_SYNTHER"
 
 elif MODE == "pgr":
     CONFIG["use_synther"] = True
     CONFIG["use_pgr"] = True
-    CONFIG["pgr_coef"] = 1e-4  # Standard penalty weight
-    CONFIG["exp_name"] = "overcooked_PGR"
+    CONFIG["pgr_coef"] = 1e-4  # Penalty weight for PGR
 
 # ============================================================
-# Main Loop
+# MAIN LOOP
 # ============================================================
-def make_env():
-    return OvercookedMAEnv(layout_name=CONFIG["layout"])
+
+def make_env(layout):
+    def _init():
+        with Silence():
+            return OvercookedSingleAgentEnv(layout_name=layout)
+    return _init
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"\n🧪 STARTING EXPERIMENT: {MODE.upper()}")
-    print(f"   Name: {CONFIG['exp_name']}")
+    print(f"   Envs: {CONFIG['num_envs']} | Device: {device}")
     print(f"   Synther: {CONFIG['use_synther']} | PGR: {CONFIG['use_pgr']}")
-    
+
     if not os.path.exists("results"):
         os.makedirs("results")
 
-    # 1. Init Env
-    env = make_env()
-    obs_dim = int(np.prod(env.observation_space.shape))
-    act_dim = env.action_space.shape[0]
+    # 1. Vectorized Envs
+    envs = gym.vector.AsyncVectorEnv(
+        [make_env(CONFIG["layout"]) for _ in range(CONFIG["num_envs"])]
+    )
+    
+    # Get Shapes
+    obs_dim = np.prod(envs.single_observation_space.shape)
+    act_dim = 1 
 
-    # 2. Init Buffer
+    # 2. Buffer
     buffer = ReplayBuffer(1_000_000, obs_dim, act_dim, device=device)
 
-    # 3. Init Agent (With PGR wiring)
+    # 3. Agent (Initialized with PGR params)
     agent = REDQSACAgent(
         obs_dim=obs_dim, act_dim=act_dim, device=device,
         batch_size=CONFIG["batch_size"], 
         utd_ratio=CONFIG["utd_ratio"],
-        # PGR Params
         use_pgr=CONFIG["use_pgr"],
         pgr_coef=CONFIG["pgr_coef"]
     )
 
-    # 4. Init Diffusion (Only if Synther is ON)
+    # 4. Diffusion (Only for Synther/PGR modes)
     if CONFIG["use_synther"]:
+        # Transition = (Obs + Act + Rew + NextObs + Done)
+        # Dimensions: Obs(N) + Act(M) + Rew(1) + NextObs(N) + Done(1)
         transition_dim = obs_dim + act_dim + 1 + obs_dim + 1
-        diff_model = DiffusionModel(dim=transition_dim, hidden=256).to(device)
+        
+        diff_model = DiffusionModel(dim=transition_dim, hidden=512).to(device)
         diff_trainer = DiffusionTrainer(diff_model, lr=3e-4, device=device)
         syn_generator = SyntheticGenerator(diff_model, device=device)
     else:
         diff_trainer = None
         syn_generator = None
 
-    # 5. Loop
-    obs, _ = env.reset()
-    obs = obs.flatten().astype(np.float32)
-    episode_return = 0    
-    pbar = trange(CONFIG["total_steps"], desc=f"{MODE.upper()} Training")
+    # 5. Training Loop
+    obs, _ = envs.reset()
+    obs = obs.reshape(CONFIG["num_envs"], -1) # Flatten
+
+    total_timesteps = 0
+    # Steps are divided by num_envs because each loop ticks all 20 envs
+    pbar = trange(int(CONFIG["total_steps"] // CONFIG["num_envs"]))
     
-    for t in pbar:
-        # Checkpoint
-        if t % 25_000 == 0 and t > 0:
-            torch.save(agent.actor.state_dict(), f"results/{CONFIG['exp_name']}_step_{t}.pth")
+    for step in pbar:
+        total_timesteps += CONFIG["num_envs"]
 
-        # A. Collect
-        if t < CONFIG["start_steps"]:
-            action = env.action_space.sample()
+        # --- A. Collect Data (Real) ---
+        if total_timesteps < CONFIG["start_steps"]:
+            actions = np.random.uniform(-1, 1, size=(CONFIG["num_envs"], 1))
         else:
-            action = agent.select_action(obs, deterministic=False)
+            # Agent handles batch prediction
+            actions = agent.select_action(obs, deterministic=False)
+            if actions.ndim == 1: actions = actions.reshape(-1, 1)
 
-        next_obs, reward, terminated, truncated, _ = env.step(action)
-        next_obs = next_obs.flatten().astype(np.float32)
-        done = terminated or truncated
+        next_obs, rewards, terminated, truncated, _ = envs.step(actions)
+        next_obs_flat = next_obs.reshape(CONFIG["num_envs"], -1)
+        dones = np.logical_or(terminated, truncated)
 
-        buffer.add(obs, action, reward, next_obs, done)
-        obs = next_obs
-        episode_return += reward
+        # Vectorized Add to Buffer
+        for i in range(CONFIG["num_envs"]):
+            buffer.add(obs[i], actions[i], rewards[i], next_obs_flat[i], dones[i])
+        
+        obs = next_obs_flat
 
-        if done:
-            pbar.set_description(f"Step {t} | Ret: {episode_return:.2f}")
-            obs, _ = env.reset()
-            obs = obs.flatten().astype(np.float32)
-            episode_return = 0
+        # --- B. Synther Logic (Periodic) ---
+        if CONFIG["use_synther"] and total_timesteps > CONFIG["start_steps"]:
+            if step % (CONFIG["diffusion_freq"] // CONFIG["num_envs"]) == 0:
+                pbar.write(f"⚡ Training Diffusion Model (Step {total_timesteps})...")
+                
+                # Train Diffusion
+                for _ in range(CONFIG["diffusion_train_steps"]):
+                    diff_trainer.train_step(buffer, batch_size=2048) # Large batch for A100
+                
+                # Generate Synthetic Data
+                pbar.write(f"   Generating {CONFIG['generate_count']} synthetic samples...")
+                fake_data = syn_generator.sample(CONFIG['generate_count'])
+                buffer.add_synthetic(fake_data)
 
-        # B. Synther Injection
-        if CONFIG["use_synther"] and t > CONFIG["start_steps"] and t % CONFIG["diffusion_freq"] == 0:
-            # Train Diffusion
-            for _ in range(CONFIG["diffusion_steps"]):
-                diff_trainer.train_step(buffer, batch_size=256)
-            
-            # Generate
-            fake_data = syn_generator.sample(CONFIG["generate_count"])
-            buffer.add_synthetic(fake_data)
-
-        # C. Agent Update
-        if t >= CONFIG["start_steps"]:
+        # --- C. Update Agent ---
+        if total_timesteps >= CONFIG["start_steps"]:
             ratio = CONFIG["synthetic_ratio"] if CONFIG["use_synther"] else 0.0
             agent.update(buffer, synthetic_ratio=ratio)
 
+        # Logging
+        if step % 100 == 0:
+            pbar.set_description(f"Step {total_timesteps} | Rew: {np.mean(rewards):.3f}")
+            # Checkpoint
+            if step % 5000 == 0:
+                torch.save(agent.actor.state_dict(), f"results/{CONFIG['exp_name']}_ckpt.pth")
+
     # Final Save
     torch.save(agent.actor.state_dict(), f"results/{CONFIG['exp_name']}_final.pth")
-    env.close()
-    print(f"🏁 {MODE.upper()} FINISHED!")
+    envs.close()
+    print("🏁 FINISHED!")
 
 if __name__ == "__main__":
     main()

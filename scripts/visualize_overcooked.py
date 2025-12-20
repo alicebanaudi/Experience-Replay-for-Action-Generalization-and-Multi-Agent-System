@@ -5,52 +5,52 @@ import numpy as np
 import time
 
 # --- IMPORTS ---
-# Ensure Python can find your folders
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
-from agents.redq_sac import REDQSACAgent
-from env.overcooked_wrapper import OvercookedMAEnv
+from agents.redq_sac_overcooked import REDQSACAgent
+from env.overcooked_wrapper import OvercookedSingleAgentEnv
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
-# Make sure this matches the filename you see in your 'results' folder
-MODEL_PATH = " results/overcooked_BASELINE_final.pth"  # <--- CHECK FILENAME
-LAYOUT = "cramped_room"
+# FIX 1: Removed leading space in string " results/..." -> "results/..."
+MODEL_PATH = "results/overcooked_vectorized_baseline_final.pth" 
+LAYOUT = "asymmetric_advantages"
 
 def main():
-    device = "cpu" # Visualization is fast enough on CPU
+    device = "cpu"
     print(f"🍿 Starting Visualization for layout: {LAYOUT}")
     
     # 1. Init Environment
-    env = OvercookedMAEnv(layout_name=LAYOUT)
+    env = OvercookedSingleAgentEnv(layout_name=LAYOUT)
     
-    # --- FIX 1: Calculate Correct Input Size (1040) ---
-    # We must flatten the 3D grid (5x4x52) into a 1D vector (1040)
+    # 2. Get Correct Dimensions
+    # Note: 520 is correct for Single Agent. 
+    # (5 width * 4 height * 26 features) = 520. 
+    # The "1040" expectation was for 2 agents, but here we only see 1 agent's view.
     obs_dim = int(np.prod(env.observation_space.shape)) 
-    act_dim = env.action_space.shape[0]
+    act_dim = 1 # Box(1,)
 
-    print(f"   Obs Dim: {obs_dim} (Expected: 1040)")
+    print(f"   Obs Dim: {obs_dim}")
     print(f"   Act Dim: {act_dim}")
 
-    # 2. Init Agent & Load Weights
+    # 3. Init Agent & Load Weights
     agent = REDQSACAgent(obs_dim, act_dim, device=device)
     
     if os.path.exists(MODEL_PATH):
         print(f"   Loading model from {MODEL_PATH}...")
         try:
+            # Load weights
             agent.actor.load_state_dict(torch.load(MODEL_PATH, map_location=device))
             print("✅ Model loaded successfully!")
         except RuntimeError as e:
             print(f"❌ Model Load Error: {e}")
-            print("💡 Tip: Did you forget to flatten the observation in the training script?")
             return
     else:
-        print(f"⚠️ Warning: File {MODEL_PATH} not found. Running with random weights.")
+        print(f"⚠️ Warning: File '{MODEL_PATH}' not found. Bot will play against Random Agent.")
 
-    # 3. Play Loop
-    # --- FIX 2: Flatten Initial State ---
+    # 4. Play Loop
     obs, _ = env.reset()
     obs = obs.flatten().astype(np.float32) 
     
@@ -59,25 +59,27 @@ def main():
     step = 0
 
     while not done:
-        # Select Deterministic Action (No random noise)
+        # Select Deterministic Action
         action = agent.select_action(obs, deterministic=True)
         
         # Step
+        # Ensure action is passed as a list/array if needed by the wrapper logic
+        # Our wrapper expects shape (1,)
+        if np.isscalar(action): action = [action]
+
         next_obs, reward, terminated, truncated, info = env.step(action)
         
-        # --- FIX 3: Flatten Next State ---
         obs = next_obs.flatten().astype(np.float32)
-        
         done = terminated or truncated
         total_reward += reward
         step += 1
 
-        # RENDER: Print the kitchen to the console
-        print(f"\n--- Step {step} | Reward: {reward:.2f} ---")
-        env.render() 
+        # RENDER
+        # This will now call your NEW manual render method
+        env.render()
         
-        # Slow down so you can watch
-        time.sleep(0.5) 
+        print(f"Step: {step} | Reward: {reward:.2f}")
+        time.sleep(0.2) # Speed up slightly (0.5 is slow)
 
     print(f"🏁 Game Over! Total Reward: {total_reward}")
     env.close()

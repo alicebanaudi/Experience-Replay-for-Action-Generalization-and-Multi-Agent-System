@@ -26,7 +26,7 @@ def run_test():
     
     try:
         # Initialize the environment (using a simple layout)
-        env = OvercookedMAEnv(layout_name="cramped_room")
+        env = OvercookedMAEnv(layout_name="asymmetric_advantages")
         print("✅ Environment initialized.")
         
         # Check Observation Space

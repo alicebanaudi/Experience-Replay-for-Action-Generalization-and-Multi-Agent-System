@@ -13,20 +13,20 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(project_root)
 
 from agents.redq_sac import REDQSACAgent
-from env.overcooked_wrapper import OvercookedMAEnv
+from env.overcooked_wrapper import OvercookedSingleAgentEnv
 from overcooked_ai_py.visualization.state_visualizer import StateVisualizer
 
 # --- CONFIG ---
 MODEL_PATH = "results/overcooked_synther_v1_actor.pth"
 OUTPUT_FILE = "cooking_agent.gif"
-LAYOUT = "cramped_room"
+LAYOUT = "asymmetric_advantages"
 MAX_STEPS = 400
 
 def main():
     print(f"📹 Starting Video Recording for: {LAYOUT}")
     
     # 1. Init Environment
-    env = OvercookedMAEnv(layout_name=LAYOUT)
+    env = OvercookedSingleAgentEnv(layout_name=LAYOUT)
     obs_dim = int(np.prod(env.observation_space.shape))
     act_dim = env.action_space.shape[0]
 
