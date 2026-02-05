@@ -1,47 +1,53 @@
-# 🎓 Experience Replay for Action Generalization and Multi-Agent Systems
+# Generative Recursive Mosaics
 
+This project builds large-scale image mosaics using **Stable Diffusion XL** and classical computer vision techniques.
 
-## 📘 Overview
-
-This project explores **generative experience replay** as a mechanism to improve **action generalization** and **multi-agent learning** in reinforcement learning (RL).  
-Traditional experience replay allows agents to store and reuse past interactions, but real experience is often limited and biased, leading to overfitting and poor adaptability.
-
-Building on recent advances such as **SYNTHER (Synthetic Experience Replay)** [1] and **PGR (Prioritized Generative Replay)** [2], we investigate how **diffusion-based generative modeling** can produce synthetic, high-quality transitions that enrich the replay buffer.  
-Our goal is to evaluate whether generative replay can scale from **single-agent control** to **multi-agent coordination**, enhancing both sample efficiency and generalization.
+From afar, the result looks like a single coherent image. Up close, the image is made of many small, semantically meaningful tiles (e.g. flowers, fish, or stylized characters), each generated at inference time rather than taken from a fixed dataset.
 
 ---
 
-## 🚀 Objectives
+## How it works
 
-- Extend **generative replay** to diverse environments beyond standard locomotion tasks.  
-- Evaluate its effectiveness in **action generalization** (continuous control) and **multi-agent coordination** (cooperative learning).  
-- Measure whether synthetic experience improves learning stability, zero-shot generalization, and coordination.  
+The pipeline is split into four main steps:
 
----
+1. **Macro image generation**  
+   A high-resolution base image is generated using Stable Diffusion XL.
 
-## 🧠 Methodology
+2. **Color quantization**  
+   The image is downsampled and clustered with K-Means in RGB space to obtain a limited color palette and a spatial map.
 
-1. **Baseline Frameworks**
-   - Start from **PGR** and **SYNTHER**, integrating diffusion-based generative replay.  
-   - Replace or augment the replay buffer with synthetic transitions.  
+3. **Micro-tile generation**  
+   For each color cluster, a semantic tile is generated with SDXL using color-conditioned prompts.  
+   Tiles are filtered using simple statistics to avoid flat or overly noisy outputs.
 
-2. **Single-Agent Environment**
-   - **Traffic Light Control (SUMO-RL)**  
-     - The agent learns to optimize signal timing to minimize congestion and waiting time.  
-     - The model interpolates between explored action parameters (e.g., signal durations) to generate new transitions.  
-     - Expected outcome: smoother value landscape and improved decision-making in unseen conditions.  
-
-3. **Multi-Agent Environment**
-   - **Overcooked-AI**  
-     - Two cooperative agents must coordinate to prepare and deliver dishes.  
-     - We hypothesize that our model can act as a *virtual partner generator*, producing diverse joint experiences that foster policy generalization and **zero-shot coordination**.  
+4. **Mosaic assembly**  
+   Tiles are placed according to the quantized map, and a lightweight color transfer aligns each tile with the local tone of the original image.
 
 ---
 
-## 🧩 Environments
+## Design choices
 
-| Setting | Environment | Description |
-|----------|--------------|-------------|
-| **Single-Agent** | **Traffic Light Control (SUMO-RL)** | Optimize signal phases to reduce congestion and waiting times. |
-| **Multi-Agent** | **Overcooked-AI** | Cooperative cooking environment to test coordination and zero-shot learning. |
+- Tiles are generated on the fly instead of being selected from a database  
+- Subjects are chosen to support wide color variation without looking unnatural  
+- Statistical filtering helps balance local detail and global readability  
+
+The goal is to keep both the global image recognizable and the individual tiles visually meaningful.
+
+---
+
+## Tech stack
+
+- Python  
+- PyTorch  
+- Stable Diffusion XL (Diffusers)  
+- Scikit-learn  
+- NumPy  
+
+
+---
+
+This project was developed for academic and experimental purposes, focusing on combining generative models with classical vision pipelines.
+
+
+## Project structure
 
