@@ -33,9 +33,12 @@ The RL backbone is based on **REDQ + Soft Actor-Critic**, allowing very high upd
 
 - **SUMO (Traffic Signal Control)**  
   Continuous control task where the agent learns to manage traffic phases under varying vehicle densities.
+  <img width="1352" height="773" alt="image" src="https://github.com/user-attachments/assets/26344b75-d24b-45d9-8dc0-9210786dcc30" />
+
 
 - **Overcooked-AI**  
   Cooperative multi-agent environment used to test the limits of generative replay in discrete, coordination-heavy tasks.
+  <img width="512" height="411" alt="image" src="https://github.com/user-attachments/assets/00a85801-48e3-4637-be11-85bcf8beacd9" />
 
 ---
 
