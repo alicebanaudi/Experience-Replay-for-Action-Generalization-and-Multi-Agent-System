@@ -1,53 +1,63 @@
-# Generative Recursive Mosaics
+# Efficient Online RL for Traffic Light Control with Generative Modeling
 
-This project builds large-scale image mosaics using **Stable Diffusion XL** and classical computer vision techniques.
+This project studies how **generative models** can improve **sample efficiency in Reinforcement Learning**, especially in settings where data collection is expensive or limited.
 
-From afar, the result looks like a single coherent image. Up close, the image is made of many small, semantically meaningful tiles (e.g. flowers, fish, or stylized characters), each generated at inference time rather than taken from a fixed dataset.
-
----
-
-## How it works
-
-The pipeline is split into four main steps:
-
-1. **Macro image generation**  
-   A high-resolution base image is generated using Stable Diffusion XL.
-
-2. **Color quantization**  
-   The image is downsampled and clustered with K-Means in RGB space to obtain a limited color palette and a spatial map.
-
-3. **Micro-tile generation**  
-   For each color cluster, a semantic tile is generated with SDXL using color-conditioned prompts.  
-   Tiles are filtered using simple statistics to avoid flat or overly noisy outputs.
-
-4. **Mosaic assembly**  
-   Tiles are placed according to the quantized map, and a lightweight color transfer aligns each tile with the local tone of the original image.
+We focus on **Synthetic Experience Replay (SYNTHER)** and **Prioritized Generative Replay (PGR)**, using diffusion models to generate realistic transitions that augment the agent’s replay buffer. The approach is evaluated on both continuous control and multi-agent environments.
 
 ---
 
-## Design choices
+## Idea
 
-- Tiles are generated on the fly instead of being selected from a database  
-- Subjects are chosen to support wide color variation without looking unnatural  
-- Statistical filtering helps balance local detail and global readability  
+Standard off-policy RL methods often overfit when trained with high update-to-data ratios and limited real experience.  
+To address this, we train a **diffusion model** to approximate environment dynamics and rewards, and use it to generate synthetic transitions that complement real data.
 
-The goal is to keep both the global image recognizable and the individual tiles visually meaningful.
-
----
-
-## Tech stack
-
-- Python  
-- PyTorch  
-- Stable Diffusion XL (Diffusers)  
-- Scikit-learn  
-- NumPy  
-
+The goal is to:
+- Improve sample efficiency
+- Stabilize learning at high update rates
+- Reduce reliance on large critic ensembles
 
 ---
 
-This project was developed for academic and experimental purposes, focusing on combining generative models with classical vision pipelines.
+## Method
+
+- A diffusion model is trained on real transitions `(s, a, r, s', done)`  
+- Synthetic transitions are periodically generated and stored in a separate replay buffer  
+- Training batches mix real and synthetic data  
+- **Prioritized Generative Replay (PGR)** guides generation toward high-relevance transitions using a curiosity-based signal  
+
+The RL backbone is based on **REDQ + Soft Actor-Critic**, allowing very high update-to-data ratios while controlling value overestimation.
+
+---
+
+## Environments
+
+- **SUMO (Traffic Signal Control)**  
+  Continuous control task where the agent learns to manage traffic phases under varying vehicle densities.
+
+- **Overcooked-AI**  
+  Cooperative multi-agent environment used to test the limits of generative replay in discrete, coordination-heavy tasks.
+
+---
+
+## Results (Summary)
+
+- In **SUMO**, generative replay significantly improves stability and convergence speed compared to real-data-only baselines.
+- Synthetic transitions act as a strong regularizer in continuous state spaces.
+- In **Overcooked-AI**, diffusion-based replay struggles to model precise discrete coordination, highlighting limitations of standard diffusion models in multi-agent settings.
+
+---
+
+## Tech Stack
+
+- Python
+- PyTorch
+- Soft Actor-Critic (SAC)
+- REDQ
+- Diffusion Models (MLP-based)
+- SUMO-RL
+- Overcooked-AI
+
+---
 
 
-## Project structure
-
+This project was developed for research purposes and focuses on understanding when and why generative experience replay helps reinforcement learning.
